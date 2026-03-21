@@ -1,0 +1,48 @@
+name: fallsense_app
+description: "FallSense MVP - Fall detection app for visually impaired users using Flutter"
+
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.0.0
+
+  # Sensors
+  sensors_plus: ^1.4.0
+
+  # Background Service
+  flutter_background_service: ^5.0.0
+
+  # Machine Learning
+  tflite_flutter: ^0.10.1
+
+  # Location Services
+  geolocator: ^9.0.0
+
+  # SMS & Telephony
+  telephony: ^0.2.0
+
+  # Accessibility & Haptics
+  flutter_tts: ^4.2.5
+  vibration: ^1.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Optional: Add assets (like the .tflite model)
+  # assets:
+  #   - assets/models/fall_detection_model.tflite
