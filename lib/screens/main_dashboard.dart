@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/fall_detection_provider.dart';
 import '../services/fall_detection_engine.dart';
 import 'pre_alarm_screen.dart';
+import 'advanced_fall_detector.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({Key? key}) : super(key: key);
@@ -189,6 +190,31 @@ class _MainDashboardState extends State<MainDashboard> {
                 ),
               ),
               const SizedBox(height: 20),
+              // Test Fall Detection Button
+              Semantics(
+                button: true,
+                label: 'Test Fall Detection',
+                enabled: true,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AdvancedFallDetector(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.warning),
+                  label: const Text('Test Fall Detection'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    backgroundColor: Colors.orange,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               // Monitoring indicator
               Consumer<FallDetectionProvider>(
                 builder: (context, provider, _) {
@@ -221,40 +247,102 @@ class _MainDashboardState extends State<MainDashboard> {
   }
 
   void _showEmergencyContactDialog(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
-    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Emergency Contact'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(
-            hintText: 'Enter phone number',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final provider = context.read<FallDetectionProvider>();
-                provider.addEmergencyContact(controller.text);
-                _fallDetectionEngine.addEmergencyContact(controller.text);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Contact added: ${controller.text}')),
-                );
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
+      builder: (_) => _EmergencyContactDialog(
+        onAdd: (number) {
+          final provider = context.read<FallDetectionProvider>();
+          provider.addEmergencyContact(number);
+          _fallDetectionEngine.addEmergencyContact(number);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Contact added: $number')),
+          );
+        },
       ),
     );
   }
+}
+
+/// Separate StatefulWidget dialog so the phone number fetch happens exactly
+/// once in [initState] — no double-call issues.
+class _EmergencyContactDialog extends StatefulWidget {
+  final void Function(String number) onAdd;
+  const _EmergencyContactDialog({required this.onAdd});
+
+  @override
+  State<_EmergencyContactDialog> createState() =>
+      _EmergencyContactDialogState();
+}
+
+class _EmergencyContactDialogState extends State<_EmergencyContactDialog> {
+  final TextEditingController _controller = TextEditingController();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _isLoading = false; // No longer fetching phone number
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Emergency Contact'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Detecting device number…',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          TextField(
+            controller: _controller,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              hintText: 'Enter phone number',
+              border: OutlineInputBorder(),
+              helperText: 'Auto-filled from SIM on Android',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            final text = _controller.text.trim();
+            if (text.isNotEmpty) {
+              widget.onAdd(text);
+              Navigator.pop(context);
+            }
+          },
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+}

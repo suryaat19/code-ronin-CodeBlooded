@@ -45,5 +45,16 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Background sensor access for fall detection -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>voip</string>
+	</array>
+	<!-- Privacy descriptions for sensor access -->
+	<key>NSMotionUsageDescription</key>
+	<string>FallSense uses motion sensors to detect falls and help you stay safe</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FallSense uses your location to send emergency responders your location in case of a fall</string>
 </dict>
 </plist>

@@ -20,6 +20,12 @@ dependencies:
 
   # Background Service
   flutter_background_service: ^5.0.0
+  flutter_background_service_android: ^6.3.1
+  flutter_background_service_ios: ^5.0.3
+
+  # Screen Control & Notifications
+  wakelock_plus: ^1.2.0
+  flutter_local_notifications: ^17.0.0
 
   # Machine Learning
   tflite_flutter: ^0.10.1
@@ -33,6 +39,7 @@ dependencies:
   # Accessibility & Haptics
   flutter_tts: ^4.2.5
   vibration: ^1.8.0
+  speech_to_text: ^6.0.0
 
 dev_dependencies:
   flutter_test:

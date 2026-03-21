@@ -3,10 +3,10 @@ import 'dart:math';
 import 'dart:async';
 
 class SensorMonitoring {
-  // ====== Enhanced Thresholds (tuned for better accuracy) ======
-  static const double ACC_THRESHOLD = 22.0; // Accelerometer threshold (m/s²)
-  static const double GYRO_THRESHOLD = 4.0; // Gyroscope threshold (rad/s)
-  static const int COOLDOWN_SEC = 5; // Cooldown between detections
+  // ====== Ultra-Conservative Thresholds ======
+  static const double ACC_THRESHOLD = 32.0; // Only REAL impacts (was 22.0)
+  static const double GYRO_THRESHOLD = 5.0; // Significant rotation (was 4.0)
+  static const int COOLDOWN_SEC = 10; // Longer cooldown (was 5)
   static const double GRAVITY = 9.81; // m/s²
 
   // ====== State ======
@@ -15,6 +15,7 @@ class SensorMonitoring {
   static DateTime? _lastTrigger;
   static bool _waitingForInactivity = false;
   static DateTime? _impactTime;
+  static int _immobilityConfirmCount = 0; // Must confirm immobility multiple times
 
   // ====== Smoothing buffers ======
   static List<double> _accBuffer = [];
@@ -96,32 +97,44 @@ class SensorMonitoring {
     bool impact = _accMag > ACC_THRESHOLD;
     bool rotation = _gyroMag > GYRO_THRESHOLD;
 
-    // Stage 1: Detect initial impact + rotation
+    // Stage 1: Detect initial impact + rotation - VERY STRICT
     if (impact && rotation && !_waitingForInactivity) {
       _waitingForInactivity = true;
       _impactTime = now;
+      _immobilityConfirmCount = 0;
       print('📋 Impact detected, waiting for inactivity confirmation...');
     }
 
-    // Stage 2: Check for inactivity after initial impact
+    // Stage 2: Check for prolonged inactivity after impact
     if (_waitingForInactivity && _impactTime != null) {
       final diff = now.difference(_impactTime!).inMilliseconds;
 
-      // Wait 500-2000ms window for device to settle
-      if (diff > 500 && diff < 2000) {
-        // Check if device becomes still (gravity range: 8-12 m/s²)
-        if (_accMag > 8 && _accMag < 12) {
-          print('🚨 FALL CONFIRMED! Acc: $_accMag, Gyro: $_gyroMag');
-          _lastTrigger = now;
-          _waitingForInactivity = false;
-          onFallDetected(true);
+      // Only start checking immobility AFTER 1 second (1000ms) - filters out brief movements
+      if (diff > 1200 && diff < 3500) {
+        // Person lying still: ACC must be VERY LOW (< 11) AND GYRO must be almost zero (< 0.5)
+        if (_accMag < 11 && _gyroMag < 0.5) {
+          _immobilityConfirmCount++;
+          print('✓ Immobile: $_immobilityConfirmCount/10 - Acc: ${_accMag.toStringAsFixed(2)}, Gyro: ${_gyroMag.toStringAsFixed(2)}');
+          
+          // Require 10 consecutive confirmations (person must stay still for 500ms+)
+          if (_immobilityConfirmCount >= 10) {
+            print('🚨 FALL CONFIRMED! Acc: $_accMag, Gyro: $_gyroMag');
+            _lastTrigger = now;
+            _waitingForInactivity = false;
+            _immobilityConfirmCount = 0;
+            onFallDetected(true);
+          }
+        } else {
+          // Failed immobility check - reset counter
+          _immobilityConfirmCount = 0;
         }
       }
 
       // Reset if detection window expires
-      if (diff >= 2000) {
+      if (diff >= 3500) {
         print('⏱️ Impact detection window expired, resetting...');
         _waitingForInactivity = false;
+        _immobilityConfirmCount = 0;
       }
     }
   }

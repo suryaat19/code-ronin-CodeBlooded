@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:vibration/vibration.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class PreAlarmScreen extends StatefulWidget {
   final VoidCallback? onCancel;
@@ -20,11 +21,36 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   late Timer _countdownTimer;
   final FlutterTts _tts = FlutterTts();
   bool _isFlashing = true;
+  late stt.SpeechToText _speechToText;
+  bool _isListening = false;
+  String _spokenText = '';
+  bool _voiceResponseReceived = false;
 
   @override
   void initState() {
     super.initState();
+    _speechToText = stt.SpeechToText();
     _initializeAlarm();
+    _initializeSpeech();
+  }
+
+  Future<void> _initializeSpeech() async {
+    try {
+      bool available = await _speechToText.initialize(
+        onError: (error) {
+          print('🎤 Speech recognition error: $error');
+          _startVoiceListening();
+        },
+        onStatus: (status) {
+          print('🎤 Speech status: $status');
+        },
+      );
+      if (available) {
+        print('✅ Speech recognition initialized');
+      }
+    } catch (e) {
+      print('❌ Error initializing speech: $e');
+    }
   }
 
   Future<void> _initializeAlarm() async {
@@ -35,13 +61,74 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
 
     // TTS alert
     await _tts.setLanguage("en-US");
-    await _tts.speak('Fall detected. Sending SOS in 15 seconds. Tap anywhere on the screen to cancel.');
+    await _tts.speak('Fall detected. Are you okay? Say "I am okay" or tap to cancel. Sending SOS in 15 seconds.');
 
     // Start countdown
     _startCountdown();
 
     // Flashing effect
     _startFlashing();
+
+    // Start listening for voice response
+    await Future.delayed(const Duration(milliseconds: 500));
+    _startVoiceListening();
+  }
+
+  void _startVoiceListening() async {
+    if (!_speechToText.isAvailable) {
+      await _initializeSpeech();
+    }
+
+    if (_speechToText.isAvailable && !_isListening) {
+      setState(() {
+        _isListening = true;
+        _spokenText = '';
+      });
+
+      try {
+        await _speechToText.listen(
+          onResult: (result) {
+            setState(() {
+              _spokenText = result.recognizedWords.toLowerCase();
+            });
+
+            // Check if user said they're okay
+            if (result.finalResult) {
+              _checkVoiceResponse(_spokenText);
+            }
+          },
+          listenFor: const Duration(seconds: 5),
+          pauseFor: const Duration(seconds: 2),
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: stt.ListenMode.search,
+        );
+
+        print('🎤 Voice listening started');
+      } catch (e) {
+        print('❌ Error starting voice listening: $e');
+        setState(() {
+          _isListening = false;
+        });
+      }
+    }
+  }
+
+  void _checkVoiceResponse(String response) {
+    print('🎤 Voice response: $response');
+
+    // Keywords to check if user is okay
+    const okayKeywords = ['okay', 'ok', 'i am okay', 'im okay', 'yes', 'fine', 'alright', 'all right', 'good'];
+
+    if (okayKeywords.any((keyword) => response.contains(keyword))) {
+      print('✅ User confirmed they are okay - canceling SOS');
+      _tts.speak('Thank you for confirming. Alarm canceled.');
+      _voiceResponseReceived = true;
+      _cancelAlarm();
+    } else {
+      print('❌ No confirmation detected - resuming voice listening');
+      _startVoiceListening();
+    }
   }
 
   void _startFlashing() {
@@ -72,6 +159,9 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
 
   void _cancelAlarm() {
     _countdownTimer.cancel();
+    if (_speechToText.isListening) {
+      _speechToText.stop();
+    }
     _tts.stop();
     widget.onCancel?.call();
     Navigator.pop(context);
@@ -92,6 +182,9 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   @override
   void dispose() {
     _countdownTimer.cancel();
+    if (_speechToText.isListening) {
+      _speechToText.stop();
+    }
     _tts.stop();
     super.dispose();
   }
@@ -148,6 +241,69 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
                   ),
                 ),
                 const SizedBox(height: 60),
+                // Voice input indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isListening ? Colors.blue : Colors.grey.shade700,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _isListening ? Colors.lightBlue : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isListening)
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.lightBlue,
+                            shape: BoxShape.circle,
+                          ),
+                          margin: const EdgeInsets.only(right: 8),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.lightBlue,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Text(
+                        _isListening ? '🎤 Listening...' : '🎤 Ready to listen',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_spokenText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Heard: "$_spokenText"',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                const SizedBox(height: 20),
                 Text(
                   'Tap anywhere to cancel',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
