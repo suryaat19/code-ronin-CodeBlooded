@@ -3,7 +3,7 @@
 ## Team Information
 - **Team Name**: CodeBlooded
 - **Project Title**: FallAssist
-- **Problem Statement / Track**: 
+- **Problem Statement / Track**: Smart Fall Detection System for Elderly People
 - **Team Members**: Surya Thota, Suhas Choudhary, Sai Veena Borra, Nitheesh Purnanand, and Shreeja Chaudhary
 - **Repository Link (if public)**: https://www.github.com/suryaat19/code-ronin-CodeBlooded
 - **Deployment Link (if applicable)**:
@@ -90,20 +90,20 @@ Teams must **explicitly disclose all AI usage**.
 - **Provider**: Scikit-learn (Open Source)
 - **Used For**: Fall detection classification using sensor features
 - **Access Method**:
-- [.] API
+- [x] API
 - [ ] Local Model
 - [ ] Hosted Platform
 
 - **Tool Name**: ChatGPT (GPT-5.3)
 - **Role in Project**: Assisted in system design, debugging, and documentation
 - **Level of Dependency**:
-- [.] Assistive
+- [x] Assistive
 - [ ] Core Logic
 - [ ] Entire Solution
 - **Tool Name**: Claude
 - **Role in Project**: Code refinement
 - **Level of Dependency**:
-- [.] Assistive
+- [x] Assistive
 - [ ] Core Logic
 - [ ] Entire Solution
 ---
@@ -114,17 +114,17 @@ The following must be declared clearly:
 
 - **AI Agents Used** (if any):
   - [ ] None
-  - [.] Yes (list below)
+  - [x] Yes (list below)
 
 ### If Yes:
 - **Agent Name / Platform**: Claude
 - **Capabilities Used**:
-  - [.] Code generation
+  - [x] Code generation
   - [ ] Full app scaffolding
   - [ ] Decision making
   - [ ] Autonomous workflows
 - **Human Intervention Level**:
-  - [.] High (manual design & logic)
+  - [x] High (manual design & logic)
   - [ ] Medium
   - [ ] Low (mostly autonomous)
 
@@ -166,11 +166,11 @@ Briefly explain:
 
 ## 8. Ethical, Legal & Compliance Checklist
 
-- [.] No copyrighted data used without permission
-- [.] No leaked or private datasets
-- [.] API usage complies with provider TOS
-- [.] No malicious automation or scraping
-- [.] No AI-generated plagiarism
+- [x] No copyrighted data used without permission
+- [x] No leaked or private datasets
+- [x] API usage complies with provider TOS
+- [x] No malicious automation or scraping
+- [x] No AI-generated plagiarism
 
 ---
 
