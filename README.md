@@ -3,40 +3,57 @@
 ## Team Information
 - **Team Name**: CodeBlooded
 - **Project Title**: FallAssist
-- **Problem Statement / Track**: Smart Fall Detection System for Elderly People
+- **Problem Statement / Track**: Smart Fall Detection System for Elderly Visually Impaired People
 - **Team Members**: Surya Thota, Suhas Choudhary, Sai Veena Borra, Nitheesh Purnanand, and Shreeja Chaudhary
-- **Repository Link (if public)**: https://www.github.com/suryaat19/code-ronin-CodeBlooded
-- **Deployment Link (if applicable)**:
+- **Repository Link**: https://www.github.com/suryaat19/code-ronin-CodeBlooded
+- **Deployment Link**: 
 
 ---
-make a dot in square brackets for selection 
 
 ## 1. APIs & External Services Used
 
 For **each API / external service**, teams must clearly specify the following:
 
 ### API / Service Entry
-- **API / Service Name**:
-- **Provider / Organization**:
-- **Purpose in Project**:
+- **API / Service Name**: Flutter
+- **Provider / Organization**: Google
+- **Purpose in Project**: Application SDK
 - **API Type**:
   - [ ] REST
   - [ ] GraphQL
-  - [ ] SDK
+  - [x] SDK
   - [ ] Other (specify)
 - **License Type**:
-  - [ ] Open Source
+  - [x] Open Source
   - [ ] Free Tier
   - [ ] Academic
   - [ ] Commercial
 - **License Link / Documentation URL**:
 - **Rate Limits (if any)**:
 - **Commercial Use Allowed**:
-  - [ ] Yes
+  - [x] Yes
   - [ ] No
   - [ ] Unclear
 
-> Repeat this section for every API or external service used.
+- **API / Service Name**: iOS/Android Speech to Text
+- **Provider / Organization**: Apple/Google
+- **Purpose in Project**: Application SDK
+- **API Type**:
+  - [ ] REST
+  - [ ] GraphQL
+  - [x] SDK
+  - [ ] Other (specify)
+- **License Type**:
+  - [x] Open Source
+  - [ ] Free Tier
+  - [ ] Academic
+  - [ ] Commercial
+- **License Link / Documentation URL**:
+- **Rate Limits (if any)**:
+- **Commercial Use Allowed**:
+  - [x] Yes
+  - [ ] No
+  - [ ] Unclear
 
 ---
 
@@ -56,7 +73,6 @@ Teams **must disclose how API keys or credentials are obtained and handled**.
   - [ ] Yes 
   - [ ] No 
 
- **Hardcoding API keys in public repositories will lead to disqualification.**
 
 ---
 
@@ -157,11 +173,22 @@ Failure to justify usage may impact **innovation and originality scores**.
 
 ## 7. Originality & Human Contribution Statement
 
-Briefly explain:
-- What parts were **designed and implemented by humans**
-- What parts were **assisted by AI**
-- What makes your solution **unique**
-
+### Designed & Implemented by Humans
+- Core system logic and hybrid architecture (rule-based + ML)
+- Data preprocessing, feature extraction, and model training
+- Threshold tuning and decision logic
+- Flutter application development and sensor integration
+- Overall system integration and testing
+--
+### Assisted by AI- Code generation support
+- Debugging and error resolution
+- Documentation and explanation assistance 
+--
+### What makes your solution unique
+- In-device execution
+- Increased accuracy and reliability using hybrid approach
+- Visually-impaired user friendly interface
+- Works without internet connection
 ---
 
 ## 8. Ethical, Legal & Compliance Checklist
