@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'sensor_monitoring.dart';
 import 'ml_fall_detector.dart';
 import 'sms_location_service.dart';
@@ -9,7 +10,7 @@ class FallDetectionEngine {
   Timer? _sosTimer;
   bool _fallConfirmed = false;
   List<String> _emergencyContacts = [];
-  Map<String, String> _contactNames = {}; // Map phone to contact name
+  Map<String, String> _contactNames = {};
 
   FallDetectionEngine({
     required this.onFallDetected,
@@ -22,7 +23,6 @@ class FallDetectionEngine {
       _contactNames[emergencyContact] = 'Primary Contact';
     }
 
-    // Start sensor monitoring - rule-based detection
     SensorMonitoring.startMonitoring(
       onFallDetected: (detected) {
         if (detected) {
@@ -35,41 +35,90 @@ class FallDetectionEngine {
   }
 
   /// Handle when sensors detect a potential fall
-  /// Pipeline: Rule-based detection -> ML verification -> Confirm
+  /// Pipeline: Rule-based scoring -> ML verification -> Confirm
   Future<void> _handlePotentialFall() async {
-    if (_fallConfirmed) return; // Already processing
+    if (_fallConfirmed) return;
 
     print('[DETECT] Rule-based fall detected - running ML verification...');
 
-    // Collect recent sensor data for ML verification
-    // Use current readings as a simple feature vector
-    final sensorWindow = _collectSensorWindow();
+    final features = _extractFeatures();
 
-    // ML verification
-    final confidence = await MLFallDetector.verifyFall(sensorWindow);
+    if (features == null) {
+      print('[ML] Not enough sensor data for ML verification, confirming by rule-based score');
+      _fallConfirmed = true;
+      _onFallConfirmed();
+      return;
+    }
 
-    print('[ML] Confidence: ${(confidence * 100).toStringAsFixed(1)}%');
+    final confidence = await MLFallDetector.verifyFall(features);
 
-    if (confidence >= 0.3) {
-      // ML confirms the fall
-      print('[ML CONFIRMED] Fall confirmed (confidence: ${(confidence * 100).toStringAsFixed(1)}%)');
+    if (confidence >= MLFallDetector.threshold) {
+      print('[ML CONFIRMED] Confidence: ${(confidence * 100).toStringAsFixed(1)}%');
       _fallConfirmed = true;
       _onFallConfirmed();
     } else {
-      // ML says it's not a fall - reset
-      print('[ML REJECTED] Fall rejected (confidence too low: ${(confidence * 100).toStringAsFixed(1)}%)');
+      print('[ML REJECTED] Confidence too low: ${(confidence * 100).toStringAsFixed(1)}%');
       _fallConfirmed = false;
     }
   }
 
-  /// Collect a simple sensor window for ML input
-  List<double> _collectSensorWindow() {
-    // Provide current sensor readings as features
-    // In production, you'd buffer a 2-second window of raw data
+  /// Extract 12 features from the sensor sliding window
+  /// Matches the trained model's feature order exactly:
+  ///  0: acc_max,  1: acc_mean,  2: acc_std,  3: acc_min,
+  ///  4: acc_range, 5: gyro_max, 6: gyro_mean, 7: gyro_std,
+  ///  8: jerk_max, 9: jerk_mean, 10: jerk_std, 11: energy
+  List<double>? _extractFeatures() {
+    final accData = SensorMonitoring.accWindow;
+    final gyroData = SensorMonitoring.gyroWindow;
+
+    if (accData.length < 5 || gyroData.length < 5) return null;
+
+    // === Accelerometer statistics ===
+    final accMax = accData.reduce(max);
+    final accMin = accData.reduce(min);
+    final accMean = accData.reduce((a, b) => a + b) / accData.length;
+    final accVariance = accData.map((v) => (v - accMean) * (v - accMean))
+        .reduce((a, b) => a + b) / accData.length;
+    final accStd = sqrt(accVariance);
+    final accRange = accMax - accMin;
+
+    // === Gyroscope statistics ===
+    final gyroMax = gyroData.reduce(max);
+    final gyroMean = gyroData.reduce((a, b) => a + b) / gyroData.length;
+    final gyroVariance = gyroData.map((v) => (v - gyroMean) * (v - gyroMean))
+        .reduce((a, b) => a + b) / gyroData.length;
+    final gyroStd = sqrt(gyroVariance);
+
+    // === Jerk (rate of change of acceleration) ===
+    final jerkValues = <double>[];
+    for (int i = 1; i < accData.length; i++) {
+      jerkValues.add(accData[i] - accData[i - 1]);
+    }
+    double jerkMax = 0, jerkMean = 0, jerkStd = 0;
+    if (jerkValues.isNotEmpty) {
+      jerkMax = jerkValues.map((v) => v.abs()).reduce(max);
+      jerkMean = jerkValues.reduce((a, b) => a + b) / jerkValues.length;
+      final jerkVar = jerkValues.map((v) => (v - jerkMean) * (v - jerkMean))
+          .reduce((a, b) => a + b) / jerkValues.length;
+      jerkStd = sqrt(jerkVar);
+    }
+
+    // === Energy (sum of squared acceleration magnitudes) ===
+    final energy = accData.map((v) => v * v).reduce((a, b) => a + b);
+
     return [
-      SensorMonitoring.currentAccMag,
-      SensorMonitoring.currentRawAccMag,
-      SensorMonitoring.currentGyroMag,
+      accMax,     //  0: acc_max
+      accMean,    //  1: acc_mean
+      accStd,     //  2: acc_std
+      accMin,     //  3: acc_min
+      accRange,   //  4: acc_range
+      gyroMax,    //  5: gyro_max
+      gyroMean,   //  6: gyro_mean
+      gyroStd,    //  7: gyro_std
+      jerkMax,    //  8: jerk_max
+      jerkMean,   //  9: jerk_mean
+      jerkStd,    // 10: jerk_std
+      energy,     // 11: energy
     ];
   }
 

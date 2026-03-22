@@ -45,17 +45,17 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   @override
   void initState() {
     super.initState();
-    _speechToText = stt.SpeechToText();
     _initializeAlarm();
     _initializeSpeech();
   }
 
   Future<void> _initializeSpeech() async {
     try {
-      bool available = await _speechToText.initialize(
+      bool available = await _speech.initialize(
         onError: (error) {
-          print('🎤 Speech recognition error: $error');
-          _startVoiceListening();
+          print('Speech recognition error: $error');
+          // Restart listening on error
+          if (mounted) _startListening();
         },
         onStatus: (status) {
           print('🎤 Speech status: $status');

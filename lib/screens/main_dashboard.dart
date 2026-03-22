@@ -1,12 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:torch_light/torch_light.dart';
+import 'package:vibration/vibration.dart';
 import 'dart:async';
 import '../providers/fall_detection_provider.dart';
 import '../services/fall_detection_engine.dart';
 import '../services/sensor_monitoring.dart';
-import 'pre_alarm_screen.dart';
-import 'advanced_fall_detector.dart';
+import 'emergency_contacts_screen.dart';
+
+class AnimeColors {
+  static const Color bg = Color(0xFF0D0D1A);
+  static const Color cardBg = Color(0xFF161630);
+  static const Color neonPink = Color(0xFFFF6B9D);
+  static const Color neonCyan = Color(0xFF00F5FF);
+  static const Color neonPurple = Color(0xFFBB86FC);
+  static const Color neonBlue = Color(0xFF6C63FF);
+  static const Color sakura = Color(0xFFFFB7C5);
+  static const Color warmWhite = Color(0xFFF0E6FF);
+  static const Color dangerRed = Color(0xFFFF4060);
+  static const Color successGreen = Color(0xFF00E676);
+}
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({Key? key}) : super(key: key);
@@ -15,13 +32,53 @@ class MainDashboard extends StatefulWidget {
   State<MainDashboard> createState() => _MainDashboardState();
 }
 
-class _MainDashboardState extends State<MainDashboard> {
+class _MainDashboardState extends State<MainDashboard>
+    with SingleTickerProviderStateMixin {
   late FallDetectionEngine _fallDetectionEngine;
   Timer? _uiUpdateTimer;
+  bool _isDetectionEnabled = true;
+
+  // Dynamic Island state
+  String _islandMessage = '';
+  IconData _islandIcon = Icons.info;
+  Color _islandColor = AnimeColors.neonCyan;
+  bool _islandVisible = false;
+  Timer? _islandTimer;
+  AnimationController? _islandAnimController;
+  Animation<double>? _islandAnimation;
+
+  // Inline Fall Alert state
+  bool _fallAlertActive = false;
+  int _secondsRemaining = 15;
+  Timer? _countdownTimer;
+  final FlutterTts _tts = FlutterTts();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _isListening = false;
+  String _lastHeardWords = '';
+  Timer? _flashTimer;
+  Timer? _vibrationTimer;
+  bool _flashOn = false;
+
+  static const List<String> _cancelKeywords = [
+    'stop', 'abort', 'cancel', 'no', 'okay',
+    'i\'m fine', 'i am fine', 'fine', 'false alarm', 'i am okay',
+  ];
 
   @override
   void initState() {
     super.initState();
+
+    _islandAnimController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      reverseDuration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _islandAnimation = CurvedAnimation(
+      parent: _islandAnimController!,
+      curve: Curves.easeOutBack,
+      reverseCurve: Curves.easeIn,
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeFallDetection();
     });
@@ -32,9 +89,9 @@ class _MainDashboardState extends State<MainDashboard> {
 
     _fallDetectionEngine = FallDetectionEngine(
       onFallDetected: (detected) {
-        if (detected) {
+        if (detected && mounted) {
           provider.setFallDetected(true);
-          _showPreAlarmScreen();
+          _triggerFallAlert();
         }
       },
     );
@@ -45,229 +102,438 @@ class _MainDashboardState extends State<MainDashboard> {
 
     provider.setMonitoring(true);
 
-    // Update UI with live sensor data every 100ms
     _uiUpdateTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) setState(() {});
     });
   }
 
-  void _showPreAlarmScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PreAlarmScreen(
-          onCancel: () {
-            _fallDetectionEngine.cancelSOS();
-            context.read<FallDetectionProvider>().setFallDetected(false);
+  // ============ Dynamic Island ============
+
+  void _showDynamicIsland({
+    required String message,
+    required IconData icon,
+    required Color color,
+    Duration duration = const Duration(seconds: 2),
+  }) {
+    _islandTimer?.cancel();
+
+    setState(() {
+      _islandMessage = message;
+      _islandIcon = icon;
+      _islandColor = color;
+      _islandVisible = true;
+    });
+    _islandAnimController?.forward();
+
+    _islandTimer = Timer(duration, () {
+      _islandAnimController?.reverse().then((_) {
+        if (mounted) setState(() => _islandVisible = false);
+      });
+    });
+  }
+
+  // ============ Inline Fall Alert ============
+
+  void _triggerFallAlert() {
+    setState(() {
+      _fallAlertActive = true;
+      _secondsRemaining = 15;
+      _lastHeardWords = '';
+    });
+
+    _showDynamicIsland(
+      message: 'Fall Detected!',
+      icon: Icons.warning_rounded,
+      color: AnimeColors.dangerRed,
+      duration: const Duration(seconds: 3),
+    );
+
+    // Start phone alerts: vibration + flashlight
+    _startPhoneAlerts();
+
+    // Start listening IMMEDIATELY (don't wait for TTS)
+    _startListening();
+
+    _tts.setLanguage("en-US");
+    _tts.speak(
+      'Fall detected. Sending SOS in 15 seconds. Say stop or double tap to cancel.',
+    );
+
+    _startCountdown();
+  }
+
+  void _startPhoneAlerts() {
+    // Continuous vibration pattern
+    _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
+      if (_fallAlertActive) {
+        HapticFeedback.heavyImpact();
+        if (await Vibration.hasVibrator() ?? false) {
+          Vibration.vibrate(duration: 800, amplitude: 255);
+        }
+      }
+    });
+    // Immediate first vibrate
+    HapticFeedback.heavyImpact();
+    Vibration.vibrate(duration: 800, amplitude: 255);
+
+    // Toggle flashlight on/off
+    _flashTimer = Timer.periodic(const Duration(milliseconds: 700), (_) async {
+      if (!_fallAlertActive) return;
+      try {
+        if (_flashOn) {
+          await TorchLight.disableTorch();
+        } else {
+          await TorchLight.enableTorch();
+        }
+        _flashOn = !_flashOn;
+      } catch (e) {
+        // Flashlight not available on this device
+      }
+    });
+  }
+
+  void _stopPhoneAlerts() {
+    _vibrationTimer?.cancel();
+    _vibrationTimer = null;
+    _flashTimer?.cancel();
+    _flashTimer = null;
+    Vibration.cancel();
+    // Ensure flashlight is off
+    try {
+      TorchLight.disableTorch();
+    } catch (_) {}
+    _flashOn = false;
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining > 0) {
+        setState(() => _secondsRemaining--);
+      } else {
+        timer.cancel();
+        _sendSOS();
+      }
+    });
+  }
+
+  Future<void> _startListening() async {
+    try {
+      bool available = await _speech.initialize(
+        onError: (error) {
+          if (mounted && _fallAlertActive && error.errorMsg != 'error_busy') {
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted && _fallAlertActive) _startListening();
+            });
+          }
+        },
+        onStatus: (status) {
+          if (status == 'notListening' && mounted) {
+            setState(() => _isListening = false);
+            if (_fallAlertActive && _secondsRemaining > 0) {
+              Future.delayed(const Duration(milliseconds: 300), () {
+                if (mounted && _fallAlertActive) _startListening();
+              });
+            }
+          }
+        },
+      );
+
+      if (available && mounted && _fallAlertActive) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (result) {
+            final words = result.recognizedWords.toLowerCase();
+            if (mounted) setState(() => _lastHeardWords = words);
+            _checkForCancelCommand(words);
           },
-        ),
-      ),
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 3),
+          listenOptions: stt.SpeechListenOptions(
+            listenMode: stt.ListenMode.dictation,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Speech init error: $e');
+    }
+  }
+
+  void _checkForCancelCommand(String words) {
+    for (final keyword in _cancelKeywords) {
+      if (words.contains(keyword)) {
+        _cancelFallAlert();
+        return;
+      }
+    }
+  }
+
+  void _cancelFallAlert() {
+    if (!_fallAlertActive) return;
+    _countdownTimer?.cancel();
+    _speech.stop();
+    _tts.stop();
+    _stopPhoneAlerts();
+    _fallDetectionEngine.cancelSOS();
+    context.read<FallDetectionProvider>().setFallDetected(false);
+
+    setState(() {
+      _fallAlertActive = false;
+      _isListening = false;
+      _lastHeardWords = '';
+    });
+
+    _showDynamicIsland(
+      message: 'SOS Cancelled',
+      icon: Icons.check_circle,
+      color: AnimeColors.successGreen,
     );
   }
+
+  Future<void> _sendSOS() async {
+    _speech.stop();
+    _stopPhoneAlerts();
+
+    final provider = context.read<FallDetectionProvider>();
+    final contacts = provider.emergencyContacts;
+    final contactDisplay =
+        contacts.isNotEmpty ? contacts.first : 'emergency contacts';
+
+    setState(() {
+      _fallAlertActive = false;
+      _isListening = false;
+    });
+
+    _showDynamicIsland(
+      message: 'SOS sent to $contactDisplay',
+      icon: Icons.send,
+      color: AnimeColors.dangerRed,
+      duration: const Duration(seconds: 4),
+    );
+
+    _tts.speak('Sending SOS alert now.');
+  }
+
+  // ============ Lifecycle ============
 
   @override
   void dispose() {
     _uiUpdateTimer?.cancel();
+    _islandTimer?.cancel();
+    _countdownTimer?.cancel();
+    _vibrationTimer?.cancel();
+    _flashTimer?.cancel();
+    _islandAnimController?.dispose();
+    _tts.stop();
+    _speech.stop();
+    try { TorchLight.disableTorch(); } catch (_) {}
+    Vibration.cancel();
     _fallDetectionEngine.dispose();
     super.dispose();
   }
 
+  // ============ Build ============
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return GestureDetector(
+      // Double-tap anywhere to cancel SOS (accessibility)
+      onDoubleTap: _fallAlertActive ? _cancelFallAlert : null,
+      child: Scaffold(
+        backgroundColor: AnimeColors.bg,
+        floatingActionButton: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'made by CodeBlooded',
+              style: TextStyle(
+                color: AnimeColors.neonPurple.withOpacity(0.3),
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 12),
+            FloatingActionButton(
+              onPressed: () => _showProfileMenu(context),
+              backgroundColor: AnimeColors.cardBg,
+              shape: CircleBorder(
+                side: BorderSide(
+                  color: AnimeColors.neonPurple.withOpacity(0.4),
+                  width: 1.5,
+                ),
+              ),
+              child: Icon(Icons.settings,
+                  color: AnimeColors.neonPurple, size: 24),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Stack(
             children: [
-              const SizedBox(height: 20),
-
-              // --- Status Header ---
-              Semantics(
-                label: 'System Status: Active and Monitoring',
-                enabled: true,
-                child: Text(
-                  'System Active & Monitoring',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: Colors.green,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 28,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // --- Live Sensor Display ---
-              _buildSensorCard(
-                title: 'Accelerometer',
-                value: '${SensorMonitoring.currentAccMag.toStringAsFixed(2)} m/s2',
-                rawValue: 'Raw: ${SensorMonitoring.currentRawAccMag.toStringAsFixed(2)}',
-                isTriggered: SensorMonitoring.currentRawAccMag > 12.0,
-                color: Colors.blue,
-                icon: Icons.speed,
-              ),
-              const SizedBox(height: 12),
-              _buildSensorCard(
-                title: 'Gyroscope',
-                value: '${SensorMonitoring.currentGyroMag.toStringAsFixed(2)} rad/s',
-                rawValue: null,
-                isTriggered: SensorMonitoring.currentGyroMag > 2.0,
-                color: Colors.orange,
-                icon: Icons.rotate_right,
-              ),
-              const SizedBox(height: 12),
-
-              // --- Detection Phase ---
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: SensorMonitoring.currentPhase.contains('Free-fall')
-                        ? Colors.yellow
-                        : SensorMonitoring.currentPhase.contains('inactivity')
-                            ? Colors.orange
-                            : Colors.white24,
-                    width: 1.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              // Main content
+              SingleChildScrollView(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(
-                      SensorMonitoring.currentPhase == 'Monitoring'
-                          ? Icons.shield
-                          : Icons.warning_amber,
-                      color: SensorMonitoring.currentPhase == 'Monitoring'
-                          ? Colors.green
-                          : Colors.yellow,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      SensorMonitoring.currentPhase,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: SensorMonitoring.currentPhase == 'Monitoring'
-                            ? Colors.white70
-                            : Colors.yellow,
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(height: 50),
+
+                    // --- App Name + Toggle ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        children: [
+                          ShaderMask(
+                            shaderCallback: (bounds) => LinearGradient(
+                              colors: [
+                                AnimeColors.neonPink,
+                                AnimeColors.neonPurple,
+                              ],
+                            ).createShader(bounds),
+                            child: Text(
+                              'FALLASSIST',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 28,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          CupertinoSwitch(
+                            value: _isDetectionEnabled,
+                            activeTrackColor: AnimeColors.neonPurple,
+                            thumbColor: Colors.white,
+                            onChanged: _fallAlertActive
+                                ? null
+                                : (value) {
+                                    setState(
+                                        () => _isDetectionEnabled = value);
+                                    final provider = context
+                                        .read<FallDetectionProvider>();
+                                    if (value) {
+                                      _fallDetectionEngine.initialize(
+                                        emergencyContact:
+                                            provider.emergencyContact,
+                                      );
+                                      provider.setMonitoring(true);
+                                      _showDynamicIsland(
+                                        message:
+                                            'Smart Fall Detection is ON',
+                                        icon: Icons.shield,
+                                        color: AnimeColors.successGreen,
+                                      );
+                                    } else {
+                                      _fallDetectionEngine.dispose();
+                                      provider.setMonitoring(false);
+                                      _showDynamicIsland(
+                                        message:
+                                            'Smart Fall Detection is OFF',
+                                        icon: Icons.shield_outlined,
+                                        color: AnimeColors.dangerRed,
+                                      );
+                                    }
+                                  },
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(height: 24),
+
+                    // --- Live Sensor Display ---
+                    IntrinsicHeight(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _buildSensorCard(
+                              title: 'Accelerometer',
+                              value:
+                                  '${SensorMonitoring.currentAccMag.toStringAsFixed(2)} m/s²',
+                              isTriggered:
+                                  SensorMonitoring.currentRawAccMag > 12.0,
+                              color: AnimeColors.neonCyan,
+                              icon: Icons.speed,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildSensorCard(
+                              title: 'Gyroscope',
+                              value:
+                                  '${SensorMonitoring.currentGyroMag.toStringAsFixed(2)} rad/s',
+                              isTriggered:
+                                  SensorMonitoring.currentGyroMag > 2.0,
+                              color: AnimeColors.neonPink,
+                              icon: Icons.rotate_right,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // --- Inline Fall Alert Panel ---
+                    if (_fallAlertActive) _buildFallAlertPanel(),
                   ],
                 ),
               ),
-              const SizedBox(height: 30),
 
-              // --- Emergency Contacts ---
-              Consumer<FallDetectionProvider>(
-                builder: (context, provider, _) {
-                  final contacts = provider.emergencyContacts;
-                  return Column(
-                    children: [
-                      Text(
-                        'Emergency Contacts',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Colors.white70,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+              // --- Dynamic Island ---
+              if (_islandVisible && _islandAnimation != null)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: ScaleTransition(
+                      scale: _islandAnimation!,
+                      child: FadeTransition(
+                        opacity: _islandAnimation!,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFF1A1A2E),
+                                const Color(0xFF16213E),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: _islandColor.withOpacity(0.3),
+                              width: 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _islandColor.withOpacity(0.25),
+                                blurRadius: 20,
+                                spreadRadius: 0,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(_islandIcon,
+                                  color: _islandColor, size: 18),
+                              const SizedBox(width: 10),
+                              Text(
+                                _islandMessage,
+                                style: TextStyle(
+                                  color: AnimeColors.warmWhite,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      if (contacts.isEmpty)
-                        Text(
-                          'No emergency contacts set yet.',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.white54,
-                            fontSize: 14,
-                          ),
-                        )
-                      else
-                        Container(
-                          constraints: const BoxConstraints(maxHeight: 150),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: contacts.length,
-                            itemBuilder: (context, index) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4.0),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${index + 1}. ${contacts[index]}',
-                                        textAlign: TextAlign.center,
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          color: Colors.white70,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ),
-                                    GestureDetector(
-                                      onTap: () {
-                                        provider.removeEmergencyContact(contacts[index]);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Contact removed: ${contacts[index]}')),
-                                        );
-                                      },
-                                      child: const Padding(
-                                        padding: EdgeInsets.only(left: 8.0),
-                                        child: Icon(Icons.close, color: Colors.red, size: 18),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 30),
-
-              // --- Add Contact Button ---
-              ElevatedButton(
-                onPressed: () => _showEmergencyContactDialog(context),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  'Add Emergency Contact',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // --- Monitoring Indicator ---
-              Consumer<FallDetectionProvider>(
-                builder: (context, provider, _) {
-                  return Text(
-                    provider.isMonitoring ? 'Monitoring Active' : 'Monitoring Inactive',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: provider.isMonitoring ? Colors.green : Colors.red,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
                     ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
+                  ),
+                ),
             ],
           ),
         ),
@@ -275,45 +541,132 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  Widget _buildSensorCard({
-    required String title,
-    required String value,
-    required String? rawValue,
-    required bool isTriggered,
-    required Color color,
-    required IconData icon,
-  }) {
+  // ============ Fall Alert Panel Widget ============
+
+  Widget _buildFallAlertPanel() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isTriggered ? Colors.red : color.withOpacity(0.5),
-          width: isTriggered ? 2 : 1,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AnimeColors.dangerRed.withOpacity(0.15),
+            AnimeColors.neonPink.withOpacity(0.08),
+          ],
         ),
+        borderRadius: BorderRadius.circular(16),
+        border:
+            Border.all(color: AnimeColors.dangerRed.withOpacity(0.5), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: AnimeColors.dangerRed.withOpacity(0.15),
+            blurRadius: 20,
+            spreadRadius: 0,
+          ),
+        ],
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(icon, color: isTriggered ? Colors.red : color, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: isTriggered ? Colors.red : color,
-                  ),
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.warning_rounded,
+                  color: AnimeColors.dangerRed, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'FALL DETECTED',
+                style: TextStyle(
+                  color: AnimeColors.dangerRed,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2,
                 ),
-                if (rawValue != null)
-                  Text(rawValue, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Countdown
+          Text(
+            'Sending SOS in',
+            style: TextStyle(color: AnimeColors.warmWhite.withOpacity(0.6), fontSize: 14),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$_secondsRemaining',
+            style: TextStyle(
+              color: AnimeColors.dangerRed,
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            'seconds',
+            style: TextStyle(color: AnimeColors.warmWhite.withOpacity(0.6), fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+
+          // Mic listening
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _isListening ? Icons.mic : Icons.mic_off,
+                color: _isListening
+                    ? AnimeColors.successGreen
+                    : AnimeColors.warmWhite.withOpacity(0.3),
+                size: 20,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _isListening ? 'Listening...' : 'Starting mic...',
+                style: TextStyle(
+                  color: _isListening
+                      ? AnimeColors.successGreen
+                      : AnimeColors.warmWhite.withOpacity(0.3),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+
+          if (_lastHeardWords.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              '"$_lastHeardWords"',
+              style: TextStyle(
+                color: AnimeColors.warmWhite.withOpacity(0.3),
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // Cancel instruction
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _cancelFallAlert,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                    color: AnimeColors.neonPink.withOpacity(0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(
+                'Double-tap anywhere or say "Stop"',
+                style: TextStyle(
+                  color: AnimeColors.sakura.withOpacity(0.8),
+                  fontSize: 14,
+                ),
+              ),
             ),
           ),
         ],
@@ -321,103 +674,121 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  void _showEmergencyContactDialog(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
-    String? errorText;
-    String selectedCountryCode = '+91';
+  // ============ Profile Menu ============
 
-    final countryCodes = [
-      {'code': '+91', 'country': 'India (+91)'},
-      {'code': '+1', 'country': 'USA (+1)'},
-      {'code': '+44', 'country': 'UK (+44)'},
-      {'code': '+61', 'country': 'Australia (+61)'},
-      {'code': '+971', 'country': 'UAE (+971)'},
-      {'code': '+65', 'country': 'Singapore (+65)'},
-      {'code': '+81', 'country': 'Japan (+81)'},
-      {'code': '+49', 'country': 'Germany (+49)'},
-      {'code': '+33', 'country': 'France (+33)'},
-      {'code': '+86', 'country': 'China (+86)'},
-    ];
-
-    showDialog(
+  void _showProfileMenu(BuildContext context) {
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Add Emergency Contact'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+      backgroundColor: AnimeColors.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AnimeColors.neonPurple.withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Icon(Icons.contact_phone,
+                      color: AnimeColors.neonCyan),
+                  title: Text(
+                    'View Emergency Contacts',
+                    style: TextStyle(
+                        color: AnimeColors.warmWhite, fontSize: 16),
+                  ),
+                  trailing: Icon(Icons.chevron_right,
+                      color: AnimeColors.warmWhite.withOpacity(0.3)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EmergencyContactsScreen(
+                          fallDetectionEngine: _fallDetectionEngine,
+                          onContactChanged: (String action) {
+                            _showDynamicIsland(
+                              message: action,
+                              icon: Icons.contact_phone,
+                              color: AnimeColors.neonCyan,
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ============ Sensor Card ============
+
+  Widget _buildSensorCard({
+    required String title,
+    required String value,
+    required bool isTriggered,
+    required Color color,
+    required IconData icon,
+  }) {
+    final displayColor = isTriggered ? AnimeColors.dangerRed : color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: AnimeColors.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: displayColor.withOpacity(isTriggered ? 0.7 : 0.3),
+          width: isTriggered ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: displayColor.withOpacity(0.1),
+            blurRadius: 12,
+            spreadRadius: 0,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              DropdownButtonFormField<String>(
-                value: selectedCountryCode,
-                decoration: const InputDecoration(
-                  labelText: 'Country',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.flag),
-                ),
-                items: countryCodes.map((c) {
-                  return DropdownMenuItem<String>(
-                    value: c['code'],
-                    child: Text(c['country']!, style: const TextStyle(fontSize: 14)),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setDialogState(() => selectedCountryCode = value);
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.phone,
-                maxLength: 10,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                ],
-                decoration: InputDecoration(
-                  hintText: 'Enter 10-digit phone number',
-                  border: const OutlineInputBorder(),
-                  errorText: errorText,
-                  counterText: '',
-                  prefixIcon: const Icon(Icons.phone),
-                  prefixText: '$selectedCountryCode ',
-                ),
-                onChanged: (_) {
-                  if (errorText != null) {
-                    setDialogState(() => errorText = null);
-                  }
-                },
-              ),
+              Icon(icon, color: displayColor, size: 18),
+              const SizedBox(width: 6),
+              Text(title,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: AnimeColors.warmWhite.withOpacity(0.5))),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: displayColor,
             ),
-            TextButton(
-              onPressed: () {
-                final number = controller.text.trim();
-                if (number.length != 10) {
-                  setDialogState(() {
-                    errorText = 'Please enter exactly 10 digits';
-                  });
-                  return;
-                }
-
-                final fullNumber = '$selectedCountryCode$number';
-                final provider = context.read<FallDetectionProvider>();
-                provider.addEmergencyContact(fullNumber);
-                _fallDetectionEngine.addEmergencyContact(fullNumber);
-                Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Contact added: $fullNumber')),
-                );
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

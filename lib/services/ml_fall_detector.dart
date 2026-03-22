@@ -1,115 +1,118 @@
-import 'dart:isolate';
-import 'package:flutter/services.dart';
+import 'dart:math';
 
+/// Real ML fall detector using trained logistic regression model.
+/// Model: 12 features, standardized (z-score), sigmoid output.
 class MLFallDetector {
-  static const String MODEL_PATH = 'assets/models/fall_detection_model.tflite';
-  
-  // For now, we'll use a mock implementation
-  // In production, load actual TFLite model here
-  
-  /// Load the TFLite model
-  static Future<void> loadModel() async {
-    try {
-      // In production, use tflite_flutter to load the model
-      // For MVP, we'll mock this
-      print('ML Model loaded (mock)');
-    } catch (e) {
-      print('Error loading ML model: $e');
-    }
+  // ===== TRAINED MODEL PARAMETERS =====
+  static const List<double> _weights = [
+    1.491267878551116,
+    -2.989426754569437,
+    -10.325931835015773,
+    -2.4826821864833417,
+    1.8982952510800284,
+    -0.13760218193953716,
+    -0.9945562809111279,
+    0.7899183146455069,
+    -0.009865520501231689,
+    0.004557534816408199,
+    1.051618643458381,
+    4.416051560730211,
+  ];
+
+  static const double _bias = -0.7934105374498217;
+
+  static const List<double> _mean = [
+    15.005025967099682,
+    10.20198556902496,
+    2.255171781263121,
+    6.965789077510973,
+    8.039236889588791,
+    2.4211670929374223,
+    1.0686637188887074,
+    0.5124770704771385,
+    1.1267953241277637,
+    -3.56132672276338e-05,
+    0.3411576235944077,
+    13941.085102559258,
+  ];
+
+  static const List<double> _scale = [
+    5.423912136973756,
+    0.8569586549417957,
+    2.5239831271939233,
+    3.0793263172721446,
+    8.288223094517347,
+    2.5218042113156462,
+    1.017673724950461,
+    0.5127072440397572,
+    1.3928116733440008,
+    0.04040819220105031,
+    0.3823174374315232,
+    3473.8794421603698,
+  ];
+
+  static const double _threshold = 0.65;
+
+  /// Sigmoid activation function
+  static double _sigmoid(double z) {
+    return 1.0 / (1.0 + exp(-z));
   }
 
-  /// Verify fall using ML model
-  /// Input: 2-second window of sensor data (accelerometer + gyroscope)
-  /// Output: confidence score 0.0-1.0
-  static Future<double> verifyFall(List<double> sensorWindow) async {
+  /// Verify fall using the trained logistic regression model.
+  ///
+  /// [features] must be a list of exactly 12 extracted features:
+  ///   0: acc_max    — max accelerometer magnitude in window
+  ///   1: acc_mean   — mean accelerometer magnitude
+  ///   2: acc_std    — std deviation of accelerometer
+  ///   3: acc_min    — min accelerometer magnitude
+  ///   4: acc_range  — max - min accelerometer
+  ///   5: gyro_max   — max gyroscope magnitude
+  ///   6: gyro_mean  — mean gyroscope magnitude
+  ///   7: gyro_std   — std deviation of gyroscope
+  ///   8: jerk_max   — max jerk (rate of change of acceleration)
+  ///   9: jerk_mean  — mean jerk
+  ///  10: jerk_std   — std deviation of jerk
+  ///  11: energy     — sum of squared acceleration magnitudes
+  ///
+  /// Returns confidence score 0.0 - 1.0
+  static Future<double> verifyFall(List<double> features) async {
     try {
-      // Mock ML verification for MVP Phase 1
-      // In production, this would:
-      // 1. Preprocess sensor data
-      // 2. Run through tflite_flutter interpreter
-      // 3. Return confidence score
-      
-      // Simple heuristic: if data shows fall pattern, return high confidence
-      if (sensorWindow.isEmpty) return 0.0;
-      
-      double maxAccel = sensorWindow.reduce((a, b) => a > b ? a : b);
-      double mean = sensorWindow.reduce((a, b) => a + b) / sensorWindow.length;
-      
-      // Mock confidence: higher if peak is significantly above mean
-      double confidence = ((maxAccel - mean) / 5.0).clamp(0.0, 1.0);
-      
-      print('ML Verification - Confidence: ${(confidence * 100).toStringAsFixed(2)}%');
+      if (features.length != 12) {
+        print('[ML] Invalid feature count: ${features.length}, expected 12');
+        return 0.0;
+      }
+
+      // Z-score standardization: (x - mean) / scale
+      final standardized = List<double>.generate(12, (i) {
+        if (_scale[i] == 0) return 0.0;
+        return (features[i] - _mean[i]) / _scale[i];
+      });
+
+      // Linear combination: w·x + b
+      double z = _bias;
+      for (int i = 0; i < 12; i++) {
+        z += _weights[i] * standardized[i];
+      }
+
+      // Sigmoid to get probability
+      final confidence = _sigmoid(z);
+
+      print('[ML] Features: [${features.map((f) => f.toStringAsFixed(2)).join(', ')}]');
+      print('[ML] Confidence: ${(confidence * 100).toStringAsFixed(1)}% '
+          '(threshold: ${(_threshold * 100).toStringAsFixed(0)}%)');
+
       return confidence;
     } catch (e) {
-      print('Error in ML verification: $e');
+      print('[ML] Error: $e');
       return 0.0;
     }
   }
 
-  /// Run ML verification asynchronously
-  static Future<void> verifyFallAsync(
-    List<double> sensorWindow,
-    SendPort sendPort,
-  ) async {
-    final confidence = await verifyFall(sensorWindow);
-    sendPort.send(confidence);
-  }
-}
+  /// Get the model's confidence threshold
+  static double get threshold => _threshold;
 
-class IsolateCommunication {
-  static ReceivePort? _mainReceivePort;
-  static SendPort? _backgroundSendPort;
-
-  /// Initialize communication between main and background isolate
-  static Future<void> initialize() async {
-    _mainReceivePort = ReceivePort();
-    
-    _mainReceivePort?.listen((message) {
-      if (message is double) {
-        // This is ML confidence from background isolate
-        print('Received ML confidence from background: $message');
-        _handleMLResult(message);
-      } else if (message is String && message == 'FALL_DETECTED') {
-        print('Fall detection confirmed from background isolate');
-        _handleFallDetected();
-      }
-    });
-  }
-
-  /// Send data to background isolate
-  static void sendToBackground(String message) {
-    if (_backgroundSendPort != null) {
-      _backgroundSendPort?.send(message);
-    } else {
-      print('Background send port not initialized');
-    }
-  }
-
-  /// Register background send port (called from background isolate)
-  static void registerBackgroundPort(SendPort sendPort) {
-    _backgroundSendPort = sendPort;
-    print('Background isolate port registered');
-  }
-
-  /// Handle ML verification result
-  static void _handleMLResult(double confidence) {
-    // If confidence > 0.7, consider it a confirmed fall
-    if (confidence > 0.7) {
-      _handleFallDetected();
-    } else {
-      print('Fall not confirmed - confidence too low: $confidence');
-    }
-  }
-
-  /// Handle confirmed fall - trigger PreAlarmScreen
-  static void _handleFallDetected() {
-    // This will be called from the main isolate
-    // The navigation will be handled by a callback in the app state
-    print('FALL DETECTED AND CONFIRMED');
-  }
-
-  /// Cleanup
-  static void dispose() {
-    _mainReceivePort?.close();
+  /// Load model (no-op since weights are embedded)
+  static Future<void> loadModel() async {
+    print('[ML] Logistic regression model ready (12 features, embedded weights)');
   }
 }

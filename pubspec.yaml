@@ -42,6 +42,10 @@ dependencies:
   # Speech Recognition
   speech_to_text: ^7.0.0
 
+  # Alert (flashlight + vibration)
+  torch_light: ^1.1.0
+  vibration: ^2.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
