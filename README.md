@@ -4,7 +4,7 @@
 - **Team Name**: CodeBlooded
 - **Project Title**: FallAssist
 - **Problem Statement / Track**: 
-- **Team Members**: Suhas Choudhary, Sai Veena Borra, Nitheesh Purnanand, and Shreeja Chaudhary
+- **Team Members**: Surya Thota, Suhas Choudhary, Sai Veena Borra, Nitheesh Purnanand, and Shreeja Chaudhary
 - **Repository Link (if public)**: https://www.github.com/suryaat19/code-ronin-CodeBlooded
 - **Deployment Link (if applicable)**:
 
