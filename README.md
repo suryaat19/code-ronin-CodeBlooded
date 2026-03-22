@@ -1,18 +1,171 @@
-# FallSense MVP - Fall Detection App for Visually Impaired Users
+# Hackathon Technical Disclosure & Compliance Document
 
-A Flutter-based cross-platform mobile application that continuously monitors device IMU sensors to detect falls and automatically sends SMS SOS alerts with GPS coordinates.
+## Team Information
+- **Team Name**: Code Blooded
+- **Project Title**: FallAssist
+- **Problem Statement / Track**: 
+- **Team Members**: Suhas Choudhary, Sai Veena Borra, Nitheesh Purnanand, Shreeja Chaudhary
+- **Repository Link (if public)**: https://www.github.com/suryaat19/code-ronin-CodeBlooded
+- **Deployment Link (if applicable)**:
 
-## Project Overview
+---
+make a dot in square brackets for selection 
 
-**FallSense MVP** is designed specifically for visually impaired users.
+## 1. APIs & External Services Used
 
-## Quick Start
+For **each API / external service**, teams must clearly specify the following:
 
-1. Navigate to project: `cd fallsense_app`
-2. Install dependencies: `flutter pub get`
-3. Update Android manifest (see ANDROID_CONFIG.md)
-4. Run: `flutter run`
+### API / Service Entry
+- **API / Service Name**:
+- **Provider / Organization**:
+- **Purpose in Project**:
+- **API Type**:
+  - [ ] REST
+  - [ ] GraphQL
+  - [ ] SDK
+  - [ ] Other (specify)
+- **License Type**:
+  - [ ] Open Source
+  - [ ] Free Tier
+  - [ ] Academic
+  - [ ] Commercial
+- **License Link / Documentation URL**:
+- **Rate Limits (if any)**:
+- **Commercial Use Allowed**:
+  - [ ] Yes
+  - [ ] No
+  - [ ] Unclear
 
-## Status
+> Repeat this section for every API or external service used.
 
-✅ **MVP Complete** - All 8 implementation steps finished
+---
+
+## 2. API Keys & Credentials Declaration
+
+Teams **must disclose how API keys or credentials are obtained and handled**.
+
+- **API Key Source**:
+  - [ ] Self-generated from official provider
+  - [ ] Hackathon-provided key
+  - [ ] Open / Keyless API
+- **Key Storage Method**:
+  - [ ] Environment Variables
+  - [ ] Secure Vault
+  - [ ] Backend-only (not exposed)
+- **Hardcoded in Repository**:
+  - [ ] Yes 
+  - [ ] No 
+
+ **Hardcoding API keys in public repositories will lead to disqualification.**
+
+---
+
+## 3. Open Source Libraries & Frameworks
+
+List **all major libraries, frameworks, and SDKs** used.
+
+| Name | Version | Purpose | License |
+|------|---------|---------|---------|
+| Example: React | 18.x | Frontend UI | MIT |
+
+
+---
+
+## 4. AI Models, Tools & Agents Used
+
+Teams must **explicitly disclose all AI usage**.
+
+### AI Models
+- **Model Name**:
+- **Provider**:
+- **Used For** (e.g., summarization, vision, code generation):
+- **Access Method**:
+  - [ ] API
+  - [ ] Local Model
+  - [ ] Hosted Platform
+
+### AI Tools / Platforms
+- **Tool Name**:
+- **Role in Project**:
+- **Level of Dependency**:
+  - [ ] Assistive
+  - [ ] Core Logic
+  - [ ] Entire Solution
+
+---
+
+## 5. AI Agent Usage Declaration (IMPORTANT)
+
+The following must be declared clearly:
+
+- **AI Agents Used** (if any):
+  - [ ] None
+  - [ ] Yes (list below)
+
+### If Yes:
+- **Agent Name / Platform**:
+- **Capabilities Used**:
+  - [ ] Code generation
+  - [ ] Full app scaffolding
+  - [ ] Decision making
+  - [ ] Autonomous workflows
+- **Human Intervention Level**:
+  - [ ] High (manual design & logic)
+  - [ ] Medium
+  - [ ] Low (mostly autonomous)
+
+---
+
+## 6. Restricted / Discouraged AI Services
+
+To preserve **originality, creativity, and fair competition**, the following restrictions apply:
+
+### Disallowed
+- Fully autonomous platforms that:
+  - Generate **entire applications end-to-end**
+  - Make architectural decisions without human reasoning
+  - Auto-generate UI + backend + deployment with minimal input
+
+### Restricted (Must Be Declared & Justified)
+Examples include but are not limited to:
+- Emergent-style autonomous app builders
+- Full-stack auto-generation agents
+- Prompt-to-product systems
+
+Usage is allowed **only if**:
+- Core logic is human-designed
+- AI is used as an **assistant**, not a replacement
+- Teams can clearly explain architecture & decisions
+
+Failure to justify usage may impact **innovation and originality scores**.
+
+---
+
+## 7. Originality & Human Contribution Statement
+
+Briefly explain:
+- What parts were **designed and implemented by humans**
+- What parts were **assisted by AI**
+- What makes your solution **unique**
+
+---
+
+## 8. Ethical, Legal & Compliance Checklist
+
+- [ ] No copyrighted data used without permission
+- [ ] No leaked or private datasets
+- [ ] API usage complies with provider TOS
+- [ ] No malicious automation or scraping
+- [ ] No AI-generated plagiarism
+
+---
+
+## 9. Final Declaration
+
+> We confirm that all information provided above is accurate.  
+> We understand that misrepresentation may lead to disqualification.
+
+**Surya Thota**:  
+
+
+---
