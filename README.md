@@ -34,7 +34,7 @@ For **each API / external service**, teams must clearly specify the following:
   - [x] Yes
   - [ ] No
   - [ ] Unclear
-
+--
 - **API / Service Name**: iOS/Android Speech to Text
 - **Provider / Organization**: Apple/Google
 - **Purpose in Project**: Application SDK
