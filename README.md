@@ -34,7 +34,7 @@ For **each API / external service**, teams must clearly specify the following:
   - [x] Yes
   - [ ] No
   - [ ] Unclear
---
+- -
 - **API / Service Name**: iOS/Android Speech to Text
 - **Provider / Organization**: Apple/Google
 - **Purpose in Project**: Application SDK
@@ -109,13 +109,14 @@ Teams must **explicitly disclose all AI usage**.
 - [x] API
 - [ ] Local Model
 - [ ] Hosted Platform
-
+- -
 - **Tool Name**: ChatGPT (GPT-5.3)
 - **Role in Project**: Assisted in system design, debugging, and documentation
 - **Level of Dependency**:
 - [x] Assistive
 - [ ] Core Logic
 - [ ] Entire Solution
+- -      
 - **Tool Name**: Claude
 - **Role in Project**: Code refinement
 - **Level of Dependency**:
@@ -187,8 +188,8 @@ Failure to justify usage may impact **innovation and originality scores**.
 ### What makes your solution unique
 - In-device execution
 - Increased accuracy and reliability using hybrid approach
-- Visually-impaired user friendly interface
-- Works without internet connection
+- Visually-impaired elderly user friendly interface
+- Offline enabled
 ---
 
 ## 8. Ethical, Legal & Compliance Checklist
