@@ -16,7 +16,7 @@ dependencies:
   provider: ^6.0.0
 
   # Sensors
-  sensors_plus: ^1.4.0
+  sensors_plus: ^6.1.0
 
   # Background Service
   flutter_background_service: ^5.0.0
@@ -33,13 +33,14 @@ dependencies:
   # Location Services
   geolocator: ^9.0.0
 
-  # SMS & Telephony
-  telephony: ^0.2.0
+  # SMS via native app
+  url_launcher: ^6.2.0
 
-  # Accessibility & Haptics
+  # Accessibility & TTS
   flutter_tts: ^4.2.5
-  vibration: ^1.8.0
-  speech_to_text: ^6.0.0
+
+  # Speech Recognition
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:

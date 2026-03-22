@@ -45,16 +45,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<!-- Background sensor access for fall detection -->
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>processing</string>
-		<string>voip</string>
-	</array>
-	<!-- Privacy descriptions for sensor access -->
-	<key>NSMotionUsageDescription</key>
-	<string>FallSense uses motion sensors to detect falls and help you stay safe</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>FallSense needs microphone access to listen for voice commands to cancel SOS alerts.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>FallSense uses speech recognition to detect voice commands like "stop" or "cancel" during fall alerts.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FallSense uses your location to send emergency responders your location in case of a fall</string>
+	<string>FallSense needs your location to include it in SOS emergency messages.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sms</string>
+	</array>
 </dict>
 </plist>

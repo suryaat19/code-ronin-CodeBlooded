@@ -1,48 +1,79 @@
 import 'package:geolocator/geolocator.dart';
-import 'package:telephony/telephony.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LocationService {
-  static final _geolocator = Geolocator();
-
-  /// Request location permissions
+  /// Request location permissions and ensure location services are enabled
   static Future<bool> requestLocationPermission() async {
-    final permission = await Geolocator.checkPermission();
-    
-    if (permission == LocationPermission.denied) {
-      final result = await Geolocator.requestPermission();
-      return result == LocationPermission.whileInUse ||
-          result == LocationPermission.always;
+    // First check if location services are enabled at all
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      print('[WARNING] Location services are DISABLED - asking user to enable');
+      // Open location settings so user can enable GPS
+      await Geolocator.openLocationSettings();
+      // Re-check after user returns
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('[ERROR] Location services still disabled');
+        return false;
+      }
     }
 
-    return permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always;
+    // Check & request permission
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        print('[ERROR] Location permission denied by user');
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      print('[ERROR] Location permission permanently denied - open app settings');
+      await Geolocator.openAppSettings();
+      return false;
+    }
+
+    return true;
   }
 
-  /// Get current location with high accuracy
+  /// Get current location with proper error handling
   static Future<Position?> getCurrentLocation() async {
     try {
       final hasPermission = await requestLocationPermission();
       if (!hasPermission) {
-        print('Location permission denied');
+        print('[ERROR] Cannot get location - permission denied');
         return null;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
+      // Try to get last known position first (instant, no GPS wait)
+      Position? lastKnown = await Geolocator.getLastKnownPosition();
+      
+      // Then get accurate current position
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 15),
+        );
 
-      print('Location obtained: ${position.latitude}, ${position.longitude}');
-      return position;
+        print('[LOCATION] Obtained: ${position.latitude}, ${position.longitude}');
+        return position;
+      } catch (e) {
+        print('[WARNING] getCurrentPosition failed: $e');
+        
+        // Fall back to last known position if current fetch fails
+        if (lastKnown != null) {
+          print('[LOCATION] Using last known: ${lastKnown.latitude}, ${lastKnown.longitude}');
+          return lastKnown;
+        }
+        
+        return null;
+      }
     } catch (e) {
-      print('Error getting location: $e');
+      print('[ERROR] Getting location: $e');
       return null;
     }
-  }
-
-  /// Format location as a string
-  static String formatLocation(Position position) {
-    return '${position.latitude},${position.longitude}';
   }
 
   /// Generate a location URL for sharing
@@ -52,46 +83,17 @@ class LocationService {
 }
 
 class SMSService {
-  static final Telephony telephony = Telephony.instance;
-
-  /// Request SMS permission
-  static Future<bool> requestSmsPermission() async {
-    try {
-      final permissionGranted =
-          await telephony.requestSmsPermissions ?? false;
-      return permissionGranted;
-    } catch (e) {
-      print('Error requesting SMS permission: $e');
-      return false;
-    }
-  }
-
   /// Send SOS SMS to emergency contact
   static Future<bool> sendSOSMessage(
     String phoneNumber,
     String location,
   ) async {
-    try {
-      final hasPermission = await requestSmsPermission();
-      if (!hasPermission) {
-        print('SMS permission denied');
-        return false;
-      }
+    final message =
+        'SOS ALERT: Fall detected!\n\n'
+        'Location: $location\n\n'
+        'Please contact emergency services immediately.';
 
-      final message =
-          'SOS ALERT: Fall detected! Location: $location. Contact emergency services.';
-
-      await telephony.sendSmsByDefaultApp(
-        to: phoneNumber,
-        message: message,
-      );
-
-      print('SOS message sent to $phoneNumber');
-      return true;
-    } catch (e) {
-      print('Error sending SMS: $e');
-      return false;
-    }
+    return await _sendSms(phoneNumber, message);
   }
 
   /// Send detailed SOS with location link
@@ -99,26 +101,35 @@ class SMSService {
     String phoneNumber,
     Position location,
   ) async {
+    final locationUrl = LocationService.getLocationUrl(location);
+    final message =
+        'EMERGENCY SOS: Fall detected!\n\n'
+        'Location: $locationUrl\n'
+        'Coordinates: ${location.latitude}, ${location.longitude}\n\n'
+        'Please send help immediately!';
+
+    return await _sendSms(phoneNumber, message);
+  }
+
+  /// Send SMS via url_launcher (opens SMS app with pre-filled message)
+  static Future<bool> _sendSms(String phoneNumber, String message) async {
     try {
-      final hasPermission = await requestSmsPermission();
-      if (!hasPermission) {
-        print('SMS permission denied');
-        return false;
-      }
-
-      final locationUrl = LocationService.getLocationUrl(location);
-      final message =
-          'EMERGENCY: Fall detected! Location: $locationUrl Coordinates: ${location.latitude}, ${location.longitude}';
-
-      await telephony.sendSmsByDefaultApp(
-        to: phoneNumber,
-        message: message,
+      final uri = Uri(
+        scheme: 'sms',
+        path: phoneNumber,
+        queryParameters: {'body': message},
       );
 
-      print('Detailed SOS sent to $phoneNumber with location');
-      return true;
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+        print('[SMS] App opened for $phoneNumber');
+        return true;
+      }
+
+      print('[ERROR] Could not launch SMS for $phoneNumber');
+      return false;
     } catch (e) {
-      print('Error sending detailed SOS: $e');
+      print('[ERROR] SMS error: $e');
       return false;
     }
   }

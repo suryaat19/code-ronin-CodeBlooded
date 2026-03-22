@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class PreAlarmScreen extends StatefulWidget {
@@ -20,11 +20,27 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   int _secondsRemaining = 15;
   late Timer _countdownTimer;
   final FlutterTts _tts = FlutterTts();
+  final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isFlashing = true;
-  late stt.SpeechToText _speechToText;
   bool _isListening = false;
-  String _spokenText = '';
-  bool _voiceResponseReceived = false;
+  bool _isCancelled = false;
+  String _lastHeardWords = '';
+  Timer? _flashTimer;
+
+  // Keywords that will cancel the SOS
+  static const List<String> _cancelKeywords = [
+    'stop',
+    'abort',
+    'cancel',
+    'no',
+    'okay',
+    'i\'m fine',
+    'i am fine',
+    'fine',
+    'false alarm',
+    'i am okay',
+    
+  ];
 
   @override
   void initState() {
@@ -55,13 +71,13 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
 
   Future<void> _initializeAlarm() async {
     // Vibration pattern - heavy impact
-    if (await Vibration.hasVibrator() ?? false) {
-      await Vibration.vibrate(duration: 500);
-    }
+    await HapticFeedback.heavyImpact();
 
     // TTS alert
     await _tts.setLanguage("en-US");
-    await _tts.speak('Fall detected. Are you okay? Say "I am okay" or tap to cancel. Sending SOS in 15 seconds.');
+    await _tts.speak(
+      'Fall detected. Sending SOS in 15 seconds. Say stop or tap anywhere to cancel.',
+    );
 
     // Start countdown
     _startCountdown();
@@ -69,70 +85,74 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
     // Flashing effect
     _startFlashing();
 
-    // Start listening for voice response
-    await Future.delayed(const Duration(milliseconds: 500));
-    _startVoiceListening();
+    // Wait for TTS to finish, then start listening
+    _tts.setCompletionHandler(() {
+      _startListening();
+    });
   }
 
-  void _startVoiceListening() async {
-    if (!_speechToText.isAvailable) {
-      await _initializeSpeech();
-    }
-
-    if (_speechToText.isAvailable && !_isListening) {
-      setState(() {
-        _isListening = true;
-        _spokenText = '';
-      });
-
-      try {
-        await _speechToText.listen(
-          onResult: (result) {
-            setState(() {
-              _spokenText = result.recognizedWords.toLowerCase();
+  /// Initialize and start speech recognition
+  Future<void> _startListening() async {
+    try {
+      bool available = await _speech.initialize(
+        onError: (error) {
+          print('Speech recognition error: ${error.errorMsg}');
+          // Restart listening if it stopped due to error
+          if (mounted && error.errorMsg != 'error_busy') {
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted) _startListening();
             });
-
-            // Check if user said they're okay
-            if (result.finalResult) {
-              _checkVoiceResponse(_spokenText);
+          }
+        },
+        onStatus: (status) {
+          print('Speech recognition status: $status');
+          if (status == 'notListening' && mounted) {
+            setState(() => _isListening = false);
+            // Auto-restart listening if countdown is still active
+            if (_secondsRemaining > 0) {
+              Future.delayed(const Duration(milliseconds: 300), () {
+                if (mounted && _secondsRemaining > 0) _startListening();
+              });
             }
-          },
-          listenFor: const Duration(seconds: 5),
-          pauseFor: const Duration(seconds: 2),
-          partialResults: true,
-          cancelOnError: false,
-          listenMode: stt.ListenMode.search,
-        );
+          }
+        },
+      );
 
-        print('🎤 Voice listening started');
-      } catch (e) {
-        print('❌ Error starting voice listening: $e');
-        setState(() {
-          _isListening = false;
-        });
+      if (available && mounted) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (result) {
+            final words = result.recognizedWords.toLowerCase();
+            if (mounted) {
+              setState(() => _lastHeardWords = words);
+            }
+            _checkForCancelCommand(words);
+          },
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 3),
+          listenOptions: stt.SpeechListenOptions(
+            listenMode: stt.ListenMode.dictation,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Speech recognition init error: $e');
+    }
+  }
+
+  /// Check if spoken words contain a cancel keyword
+  void _checkForCancelCommand(String words) {
+    for (final keyword in _cancelKeywords) {
+      if (words.contains(keyword)) {
+        print('[VOICE] Cancel keyword detected: "$keyword" in "$words"');
+        _cancelAlarm();
+        return;
       }
     }
   }
 
-  void _checkVoiceResponse(String response) {
-    print('🎤 Voice response: $response');
-
-    // Keywords to check if user is okay
-    const okayKeywords = ['okay', 'ok', 'i am okay', 'im okay', 'yes', 'fine', 'alright', 'all right', 'good'];
-
-    if (okayKeywords.any((keyword) => response.contains(keyword))) {
-      print('✅ User confirmed they are okay - canceling SOS');
-      _tts.speak('Thank you for confirming. Alarm canceled.');
-      _voiceResponseReceived = true;
-      _cancelAlarm();
-    } else {
-      print('❌ No confirmation detected - resuming voice listening');
-      _startVoiceListening();
-    }
-  }
-
   void _startFlashing() {
-    Timer.periodic(const Duration(milliseconds: 500), (timer) {
+    _flashTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       if (mounted) {
         setState(() {
           _isFlashing = !_isFlashing;
@@ -158,19 +178,25 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   }
 
   void _cancelAlarm() {
+    if (_isCancelled) return; // Prevent double-pop
+    _isCancelled = true;
+
     _countdownTimer.cancel();
-    if (_speechToText.isListening) {
-      _speechToText.stop();
-    }
+    _flashTimer?.cancel();
     _tts.stop();
+    _speech.stop();
     widget.onCancel?.call();
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Alarm canceled')),
-    );
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alarm canceled')),
+      );
+    }
   }
 
   Future<void> _sendSOS() async {
+    _speech.stop();
     _tts.speak('Sending SOS alert');
     // SMS and GPS logic will be triggered by FallDetectionEngine
     await Future.delayed(const Duration(seconds: 2));
@@ -182,10 +208,9 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
   @override
   void dispose() {
     _countdownTimer.cancel();
-    if (_speechToText.isListening) {
-      _speechToText.stop();
-    }
+    _flashTimer?.cancel();
     _tts.stop();
+    _speech.stop();
     super.dispose();
   }
 
@@ -197,7 +222,7 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
         onTap: _cancelAlarm,
         behavior: HitTestBehavior.translucent,
         child: Semantics(
-          label: 'Fall detected alarm. Tap to cancel.',
+          label: 'Fall detected alarm. Tap or say stop to cancel.',
           onTap: _cancelAlarm,
           button: true,
           enabled: true,
@@ -241,71 +266,43 @@ class _PreAlarmScreenState extends State<PreAlarmScreen> {
                   ),
                 ),
                 const SizedBox(height: 60),
-                // Voice input indicator
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _isListening ? Colors.blue : Colors.grey.shade700,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _isListening ? Colors.lightBlue : Colors.transparent,
-                      width: 2,
+
+                // Mic listening indicator
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isListening ? Icons.mic : Icons.mic_off,
+                      color: _isListening ? Colors.white : Colors.white38,
+                      size: 24,
                     ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_isListening)
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: Colors.lightBlue,
-                            shape: BoxShape.circle,
-                          ),
-                          margin: const EdgeInsets.only(right: 8),
-                          child: const Center(
-                            child: SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.lightBlue,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      Text(
-                        _isListening ? '🎤 Listening...' : '🎤 Ready to listen',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isListening ? 'Listening...' : 'Mic starting...',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _isListening ? Colors.white : Colors.white38,
+                        fontSize: 14,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                if (_spokenText.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      'Heard: "$_spokenText"',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                      textAlign: TextAlign.center,
+                const SizedBox(height: 8),
+
+                // Show last heard words for feedback
+                if (_lastHeardWords.isNotEmpty)
+                  Text(
+                    '"$_lastHeardWords"',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 const SizedBox(height: 20),
+
                 Text(
-                  'Tap anywhere to cancel',
+                  'Tap or say "Stop" to cancel',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Colors.white70,
                     fontSize: 16,

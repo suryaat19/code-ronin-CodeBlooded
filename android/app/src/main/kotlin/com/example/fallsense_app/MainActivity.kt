@@ -3,70 +3,66 @@ package com.example.fallsense_app
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import android.app.KeyguardManager
-import android.content.Context
+import android.telephony.SmsManager
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
-import android.os.PowerManager
-import android.view.WindowManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : FlutterActivity() {
-    private val channelName = "com.fallsense/fall_detection"
+    private val CHANNEL = "com.fallsense/sms"
+    private val SMS_PERMISSION_CODE = 101
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "wakeScreenAndShowAlert" -> {
-                        wakeScreenAndShowAlert()
-                        result.success(true)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "sendDirectSms" -> {
+                    val phoneNumber = call.argument<String>("phone")
+                    val message = call.argument<String>("message")
+
+                    if (phoneNumber == null || message == null) {
+                        result.error("INVALID_ARGS", "Phone number and message are required", null)
+                        return@setMethodCallHandler
                     }
-                    else -> result.notImplemented()
+
+                    // Check SMS permission
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                        != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(Manifest.permission.SEND_SMS),
+                            SMS_PERMISSION_CODE
+                        )
+                        result.error("PERMISSION_DENIED", "SMS permission not granted", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            getSystemService(SmsManager::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            SmsManager.getDefault()
+                        }
+
+                        // Split message if longer than 160 chars
+                        val parts = smsManager.divideMessage(message)
+                        if (parts.size > 1) {
+                            smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                        } else {
+                            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                        }
+
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SMS_FAILED", e.message, null)
+                    }
                 }
+                else -> result.notImplemented()
             }
-    }
-
-    /// Wake the screen and bring app to foreground
-    private fun wakeScreenAndShowAlert() {
-        try {
-            // Get wake lock
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val wakeLock = powerManager.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "FallSense::WakeLock"
-            )
-            wakeLock.acquire(3000) // 3 second hold
-
-            // Unlock device if locked
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            if (keyguardManager.isKeyguardLocked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    keyguardManager.requestDismissKeyguard(activity, null)
-                }
-            }
-
-            // Add flags to window for full-screen display
-            window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
-
-            // Bring app to foreground if in background
-            bringToForeground()
-
-            println("✅ Android: Screen wake initiated for fall alert")
-        } catch (e: Exception) {
-            println("❌ Android: Error waking screen: ${e.message}")
         }
-    }
-
-    /// Bring the app to foreground
-    private fun bringToForeground() {
-        val intent = intent.apply {
-            flags = android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                   android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-        }
-        startActivity(intent)
     }
 }
