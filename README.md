@@ -12,8 +12,6 @@
 
 ## 1. APIs & External Services Used
 
-For **each API / external service**, teams must clearly specify the following:
-
 ### API / Service Entry
 - **API / Service Name**: Flutter
 - **Provider / Organization**: Google
@@ -59,8 +57,6 @@ For **each API / external service**, teams must clearly specify the following:
 
 ## 2. API Keys & Credentials Declaration
 
-Teams **must disclose how API keys or credentials are obtained and handled**.
-
 - **API Key Source**:
   - [ ] Self-generated from official provider
   - [ ] Hackathon-provided key
@@ -77,7 +73,6 @@ Teams **must disclose how API keys or credentials are obtained and handled**.
 ---
 
 ## 3. Open Source Libraries & Frameworks
-List **all major libraries, frameworks, and SDKs** used.
 | Name | Version | Purpose | License |
 |------|--------|--------|--------|
 | Flutter | 3.x | Cross-platform app development framework | BSD |
@@ -100,7 +95,6 @@ List **all major libraries, frameworks, and SDKs** used.
 ---
 
 ## 4. AI Models, Tools & Agents Used
-Teams must **explicitly disclose all AI usage**.
 ### AI Models
 - **Model Name**: Logistic Regression
 - **Provider**: Scikit-learn (Open Source)
@@ -125,9 +119,7 @@ Teams must **explicitly disclose all AI usage**.
 - [ ] Entire Solution
 ---
 
-## 5. AI Agent Usage Declaration (IMPORTANT)
-
-The following must be declared clearly:
+## 5. AI Agent Usage Declaration
 
 - **AI Agents Used** (if any):
   - [ ] None
